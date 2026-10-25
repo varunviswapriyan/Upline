@@ -29,11 +29,11 @@ class Notifier:
         self.smtp_pass = _env("UPLINE_SMTP_PASS")
         self.smtp_host = _env("UPLINE_SMTP_HOST", default="smtp.gmail.com")
         self.smtp_port = int(_env("UPLINE_SMTP_PORT", default="465"))
-
+    # reports status of configuration of communication channels
     def status(self):
         tw = bool(self.tw_sid and self.tw_token and self.tw_from)
         return {"sms": tw, "voice": tw, "email": bool(self.smtp_user and self.smtp_pass), "push": True}
-
+    # cleans phone number
     @staticmethod
     def phone(raw):
         d = re.sub(r"[^\d+]", "", raw or "")
@@ -45,19 +45,19 @@ class Notifier:
         if len(d) == 11 and d.startswith("1"):
             return "+" + d
         return None
-
+    # checks email format
     @staticmethod
     def email(raw):
         raw = (raw or "").strip()
         return raw if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", raw) else None
-
+    # hides contact details
     @staticmethod
     def mask(to):
         if "@" in to:
             name, dom = to.split("@", 1)
             return name[:1] + "•••@" + dom
         return "•••" + to[-4:]
-
+    # makes POST request to Twilio for SMS and voice
     def _twilio(self, path, data):
         url = f"{self.tw_base}/2010-04-01/Accounts/{self.tw_sid}/{path}"
         auth = base64.b64encode(f"{self.tw_sid}:{self.tw_token}".encode()).decode()
@@ -78,11 +78,12 @@ class Notifier:
             return {"ok": False, "error": f"Twilio error {ex.code}: {msg}{hint}"}
         except Exception as ex:
             return {"ok": False, "error": f"Couldn't reach Twilio: {ex}"}
-
+    # chooses delivery method, validates recipient, sends messages
     def send(self, channel, to, items):
         st = self.status()
         if channel in ("sms", "voice", "email") and not st[channel]:
             return {"ok": False, "error": "not_configured"}
+        # HTTP using Twilio
         if channel in ("sms", "voice"):
             num = self.phone(to)
             if not num:
@@ -98,6 +99,7 @@ class Notifier:
             ok = all(r["ok"] for r in res)
             return {"ok": ok, "to": self.mask(num), "results": res,
                     "error": next((r["error"] for r in res if not r["ok"]), None)}
+        # SMTP
         if channel == "email":
             addr = self.email(to)
             if not addr:
@@ -131,7 +133,7 @@ class Notifier:
                 return {"ok": False, "error": f"Couldn't send email: {ex}"}
         return {"ok": False, "error": "unknown channel"}
 
-
+# creates SSL context for secure connections
 def _ctx():
     try:
         import certifi
@@ -139,12 +141,12 @@ def _ctx():
     except Exception:
         return ssl.create_default_context()
 
-
+# make notification text easier to read by tts
 def _speakable(t):
     t = t.replace("Upline: ", "", 1).replace("~", "about ").replace("½", " and a half")
     return re.sub(r"(\d+)%", r"\1 percent", t)
 
-
+# generates html of email
 def _email_html(title, body):
     return f"""<div style="font-family:Arial,Helvetica,sans-serif;max-width:520px;margin:auto;border:1px solid #D6DFDD;border-radius:14px;overflow:hidden">
   <div style="background:#102A33;color:#fff;padding:16px 20px;font-size:20px;font-weight:bold">⚡ Upline <span style="color:#F2B33D">·</span> outage alert</div>

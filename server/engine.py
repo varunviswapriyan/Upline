@@ -1,3 +1,5 @@
+# Calculates risk and restoration times
+
 import heapq
 import json
 import math
@@ -9,6 +11,7 @@ import numpy as np
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
 
+# risk bands
 BANDS = [(0.10, "Low"), (0.30, "Elevated"), (0.60, "High"), (1.01, "Severe")]
 
 HAZARDS = {
@@ -28,19 +31,20 @@ PRESETS = [
      "note": "Stress test: roughly twice the Feb 2025 damage."},
 ]
 
-
+# converts probability into risk
 def band_of(p):
     for t, name in BANDS:
         if p < t:
             return name
     return "Severe"
 
-
+# converts risk label to index in BANDS
 def band_index(name):
     return [b for _, b in BANDS].index(name)
 
 
 class Engine:
+    # load info from jsons
     def __init__(self):
         t0 = time.time()
         with open(os.path.join(DATA, "model.json")) as f:
@@ -53,7 +57,7 @@ class Engine:
             self.map = json.load(f)
         calib_path = os.path.join(DATA, "calibration.json")
         self.calib = json.load(open(calib_path)) if os.path.exists(calib_path) else {"crews": 300}
-
+        # set up other needed information
         zs = net["zones"]
         self.nz = len(zs)
         self.z_kind = np.array([z[0] for z in zs])
@@ -132,10 +136,11 @@ class Engine:
         self.audit = []
         print(f"[engine] loaded {len(self.pid_index):,} premises, {self.nz:,} zones in {time.time() - t0:.1f}s")
 
+    # records events for history and debugging
     def log(self, tool, inputs, summary):
         self.audit.append({"t": time.strftime("%H:%M:%S"), "tool": tool, "inputs": inputs, "out": summary})
         self.audit = self.audit[-300:]
-
+    # get the scenario/the details of the storm
     def scenario(self, sc):
         sc = sc or {}
         hz = sc.get("hazard", "ice")
@@ -164,6 +169,7 @@ class Engine:
         r = self.loc_rate["oh"] if self.x_oh[xi] else self.loc_rate["ug"]
         return -math.log(1 - min(r, 0.5)) * s
 
+    # get path to the house
     def path(self, zi):
         out = []
         z = zi
@@ -184,13 +190,14 @@ class Engine:
         kind = {"f": "Fuse", "r": "Recloser", "s": "Sectionalizer", "b": "Substation breaker"}[self.z_kind[z]]
         return kind
 
+    # calculate outage probability from network risk
     def premise_prob(self, xi, s, eta_shift="mid"):
         a = self.intercept(s)
         zi = self.x_zi[xi]
         S = {"mid": self.S, "hi": self.S_hi, "lo": self.S_lo}[eta_shift][zi]
         lam = math.exp(a) * S + self.local_lambda(xi, s)
         return 1 - math.exp(-lam), lam
-
+    # estimates risk and creates explanation of risk
     def risk(self, pid, sc):
         sc = self.scenario(sc)
         i = self.find(pid)
@@ -319,6 +326,7 @@ class Engine:
                  f"{b} ({p:.0%}), confidence {conf}")
         return res
 
+    # calculates outage information for the map
     def map_layer(self, sc):
         sc = self.scenario(sc)
         a = self.intercept(sc["severity"])
@@ -340,6 +348,7 @@ class Engine:
         return {"cells": cells, "grid": self.m["grid"], "expected_customers_out": round(expected_out),
                 "customers": int(len(pp)), "suppressed_cells": int((cnt < k).sum())}
 
+    # runs many simulations and calculates restoration times
     def _simulate(self, sc, rng, force_xi=None, n_runs=150, track_region=False, extra_jobs=None):
         s = sc["severity"] * sc["extra_damage"]
         hz = HAZARDS[sc["hazard"]]
@@ -442,6 +451,7 @@ class Engine:
                 region_curves.append((x_t[x_out], self.x_n[x_out], finish))
         return np.array(results), region_curves, jobs_count
 
+    # turns simulation results into an estimate
     def restoration(self, pid, sc, n_runs=160, seed=11, with_drivers=True, extra_jobs=None):
         sc = self.scenario(sc)
         i = self.find(pid)
@@ -507,7 +517,7 @@ class Engine:
                                           "access_pct": sc["access_pct"], "mutual_aid": sc["mutual_aid"]},
                  f"P10 {p10:.0f}h · P50 {p50:.0f}h · P90 {p90:.0f}h")
         return res
-
+    # simulates restoration and returns a simulated timeline
     def region_curve(self, sc, n_runs=12, seed=3):
         sc = self.scenario(sc)
         rng = np.random.default_rng(seed)
@@ -523,7 +533,7 @@ class Engine:
         return {"hours": hours.tolist(), "customers_restored": np.median(cust_frac, axis=0).round(3).tolist(),
                 "jobs_done": np.median(job_frac, axis=0).round(3).tolist(),
                 "customers_out": round(cust_out), "jobs": int(np.median(jc))}
-
+    # calculate sample representative homes
     def personas(self):
         if self._personas:
             return self._personas
@@ -553,7 +563,7 @@ class Engine:
              "Underground service near the substation")
         self._personas = picks
         return picks
-
+    # random home selection based on map cell or over whole map
     def random_pid(self, cell=None):
         if cell:
             gx, gy = cell
@@ -561,7 +571,7 @@ class Engine:
             if idx:
                 return self.p["pid"][random.choice(idx)]
         return random.choice(self.p["pid"])
-
+    # simulates which other homes affected by possible failure along path
     def neighbors_inference(self, pid, sc, seed=4):
         i = self.find(pid)
         xi = int(self.p_xi[i])

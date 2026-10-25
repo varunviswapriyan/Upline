@@ -1,3 +1,4 @@
+# format hours
 def fmt_h(h, lang="en"):
     h = max(0.0, float(h))
     if lang == "en" and h >= 36:
@@ -17,13 +18,13 @@ def fmt_h(h, lang="en"):
     d = h / 24
     return f"{d:.1f} days".replace(".0 days", " days")
 
-
+# range between the 10th and 90th percentiles
 def range_text(r, lang="en"):
     if lang == "es":
         return f"{fmt_h(r['p10'], 'es')} a {fmt_h(r['p90'], 'es')}"
     return f"{fmt_h(r['p10'])} to {fmt_h(r['p90'])}"
 
-
+# various household needs
 NEED_TAGS = {
     "medical_device": "🫁 {device}", "refrigerated_meds": "💊 Fridge medicine", "mobility": "♿ Mobility needs",
     "infant": "👶 Baby", "pets": "🐾 Pets", "well_pump": "💧 Well water", "critical_facility": "🏫 Facility",
@@ -31,7 +32,7 @@ NEED_TAGS = {
     "space_heater": "🔥 Space heater", "sump_pump": "🌊 Sump pump", "household": "👪 {n} people",
 }
 
-
+# turn declared needs into tags
 def need_labels(needs):
     out = []
     for k, t in NEED_TAGS.items():
@@ -42,7 +43,7 @@ def need_labels(needs):
             out.append(t.format(device=(needs.get("device_name") or "Medical equipment").capitalize()))
     return out
 
-
+# generates prep plan based on risk, restoration, needs, and scenario
 def prep(risk, rest, needs, hazard, sc=None):
     needs = needs or {}
     sc = sc or {}
@@ -229,7 +230,7 @@ def prep(risk, rest, needs, hazard, sc=None):
     return {"items": items, "escalate": escalate, "plan_days": days, "summary": summary,
             "profile": need_labels(needs)}
 
-
+# creates a summary of the prep plan
 def plan_summary(items, needs, band, p50, p90, hazard):
     you = [i for i in items if i["source"] == "you" and i["phase"] == "before"]
     lead = {"Low": "Your outage risk is low", "Elevated": "An outage is possible",
@@ -262,7 +263,7 @@ RULES = [
      "applies": "all"},
 ]
 
-
+# checks if risk merits an alert and schedules alerts
 def alerts(risk, rest, needs, sc, prefs=None):
     needs = needs or {}
     prefs = prefs or {}
@@ -315,14 +316,14 @@ def alerts(risk, rest, needs, sc, prefs=None):
             "quiet_hours": "10 pm–7 am suppressed except safety, medical and critical-facility messages",
             "hours_to_storm": hts}
 
-
+# chooses notification channel based on customer preferences
 def _channel(prefs, declared, urgent):
     pref = prefs.get("channel", "sms")
     if declared and urgent:
         return "Voice call + SMS"
     return {"sms": "SMS", "push": "App push (SMS fallback)", "email": "Email + SMS", "voice": "Voice call"}.get(pref, "SMS")
 
-
+# generates text for messages
 def messages(risk, rest, needs, sc, lang="en", updated=None, live=None):
     low_conf = risk.get("confidence") == "Low" or (rest and rest.get("confidence") == "Low")
     band = risk.get("band", "Elevated")

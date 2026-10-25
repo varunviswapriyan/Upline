@@ -34,7 +34,7 @@ def _ssl_context():
     except Exception:
         return ssl.create_default_context()
 
-
+# converts notification channel to wording
 def _chan(c):
     c = c.lower()
     if c.startswith("voice"):
@@ -52,14 +52,14 @@ def _first_sentence(t):
             return t.split(sep)[0] + "."
     return t
 
-
+# removes personally identifiable information
 def redact(text):
     t = PHONE.sub("[phone removed]", text)
     t = EMAIL.sub("[email removed]", t)
     t = ADDR.sub("[address removed]", t)
     return t
 
-
+# detect household needs
 def extract_needs(text):
     t = text.lower()
     found = {}
@@ -96,7 +96,7 @@ def extract_needs(text):
         found["household"] = int(m.group(1))
     return found
 
-
+# classifies a question into what category it belongs to
 def intent(text):
     t = text.lower()
     if re.search(r"\bwhy\b|explain|how do you know|what makes|reason", t):
@@ -117,6 +117,7 @@ def intent(text):
 
 
 class Concierge:
+    # initialize engine and guidance and LLM
     def __init__(self, engine, guidance_mod):
         self.e = engine
         self.g = guidance_mod
@@ -125,7 +126,7 @@ class Concierge:
         self.model = os.environ.get("UPLINE_LLM_MODEL", "")
         self.llm_enabled = bool(self.base and self.model)
         self.last_error = None
-
+    # sends request to LLM
     def chat_completion(self, body, timeout=20):
         body = dict(body)
         m = (self.model or "").lower()
@@ -161,14 +162,14 @@ class Concierge:
             self.last_error = f"{type(ex).__name__}: {ex}"
         print(f"[upline] AI call failed: {self.last_error}", flush=True)
         raise RuntimeError(self.last_error)
-
+    # collects data needed to answer customer questions
     def tools_payload(self, pid, sc, needs):
         risk = self.e.risk(pid, sc)
         rest = self.e.restoration(pid, sc, with_drivers=False) if risk.get("ok") else {"ok": False}
         prep = self.g.prep(risk, rest, needs, self.e.scenario(sc)["hazard"], self.e.scenario(sc))
         al = self.g.alerts(risk, rest, needs, self.e.scenario(sc))
         return risk, rest, prep, al
-
+    # Respond to customer queries
     def reply(self, msg, pid, sc, needs, lang="en"):
         trace = []
         clean = redact(msg or "")
@@ -233,7 +234,7 @@ class Concierge:
                 "escalate": prep.get("escalate", False),
                 "facts": {"band": risk["band"], "p": risk["probability"], "conf": risk["confidence"],
                           "p10": rest.get("p10"), "p50": rest.get("p50"), "p90": rest.get("p90")}}
-
+    # generates predefined answers for common questions
     def template(self, it, risk, rest, prep, al, needs):
         b, p, conf = risk["band"], risk["probability"], risk["confidence"]
         top = max((n for n in risk["path"] if n.get("share") is not None and n["kind"] != "home"),
@@ -295,7 +296,7 @@ class Concierge:
             return ("On the Home tab, tap **What could change this?** You can add or remove crews, block roads, or "
                     "add extra damage, and the estimate updates right away.")
         return self.template("risk", risk, rest, prep, al, needs)
-
+    # builds facts from model and sends to LLM
     def llm(self, msg, it, risk, rest, prep, al, needs, lang):
         facts = {
             "risk": {k: risk[k] for k in ("band", "probability", "range", "confidence")},
@@ -324,7 +325,7 @@ class Concierge:
             ],
         }
         return self.chat_completion(body, timeout=20)
-
+    # uses LLM to rephrase pre-plan summary
     def rephrase_summary(self, summary, prep, risk, rest, needs):
         if not self.llm_enabled:
             return summary, False
@@ -345,6 +346,7 @@ class Concierge:
             pass
         return summary, False
 
+    # checks AI response for unsupported numberic claims
     @staticmethod
     def grounded(text, sources):
         blob = json.dumps(sources, default=str)
